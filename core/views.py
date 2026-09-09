@@ -31,6 +31,24 @@ HTTP_TIMEOUT = (3.05, 12)
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 MAX_HTTP_ATTEMPTS = 3
 
+def landing_page(request: HttpRequest) -> HttpResponse:
+    """Página pública mínima de Umbral para el piloto comercial."""
+    html = """<!doctype html><html lang='es'><head><meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>Umbral | Consultas que se convierten en visitas</title>
+    <style>
+    body{margin:0;background:#0b1220;color:#eff6ff;font-family:Arial,sans-serif}
+    main{max-width:760px;margin:0 auto;padding:120px 28px}
+    .brand{color:#67e8f9;font-weight:700;letter-spacing:.13em;font-size:.85rem}
+    h1{font-size:clamp(2.6rem,7vw,5rem);line-height:1.02;margin:18px 0}
+    p{max-width:650px;color:#cbd5e1;font-size:1.2rem;line-height:1.6}
+    .tag{display:inline-block;margin-top:18px;padding:11px 15px;border:1px solid #22d3ee;border-radius:999px;color:#a5f3fc}
+    </style></head><body><main><div class='brand'>UMBRAL</div>
+    <h1>Más consultas.<br>Mejores visitas técnicas.</h1>
+    <p>Umbral ayuda a carpinterías de aluminio, PVC y cerramientos a ordenar, calificar y convertir sus consultas en oportunidades reales.</p>
+    <div class='tag'>Piloto privado para carpinterías</div></main></body></html>"""
+    return HttpResponse(html, content_type="text/html; charset=utf-8")
+
 
 LEAD_SCHEMA: dict[str, Any] = {
     "type": "object",
