@@ -45,7 +45,7 @@ def landing_page(request: HttpRequest) -> HttpResponse:
     .tag{display:inline-block;margin-top:18px;padding:11px 15px;border:1px solid #22d3ee;border-radius:999px;color:#a5f3fc}
     </style></head><body><main><div class='brand'>UMBRAL</div>
     <h1>Más consultas.<br>Mejores visitas técnicas.</h1>
-    <p>Umbral ayuda a carpinterías de aluminio, PVC y cerramientos a ordenar, calificar y convertir sus consultas en oportunidades reales.</p>
+    <p>Umbral ayuda a carpinterías de aluminio y PVC, cerramientos y soluciones en acrílico a ordenar, calificar y convertir sus consultas en oportunidades reales.</p>
     <div class='tag'>Piloto privado para carpinterías</div></main></body></html>"""
     return HttpResponse(html, content_type="text/html; charset=utf-8")
 
