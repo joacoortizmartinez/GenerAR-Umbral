@@ -19,7 +19,9 @@ import requests
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.middleware.csrf import get_token
 from django.utils import timezone
+from django.utils.html import escape
 from django.views.decorators.csrf import csrf_exempt
 from openai import OpenAI
 
@@ -49,6 +51,95 @@ def landing_page(request: HttpRequest) -> HttpResponse:
     <div class='tag'>Piloto privado para carpinterías</div></main></body></html>"""
     return HttpResponse(html, content_type="text/html; charset=utf-8")
 
+
+def _manual_intake_page(request: HttpRequest, cliente: Cliente, error: str = "", success: bool = False) -> HttpResponse:
+    """Formulario de capacidad limitada para un piloto sin integración de Meta."""
+    notice = (
+        "<p class='notice success'>Consulta registrada. Umbral la calificó y ya está disponible para revisión.</p>"
+        if success else (f"<p class='notice error'>{escape(error)}</p>" if error else "")
+    )
+    html = f"""<!doctype html><html lang='es'><head><meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>Derivar consulta | {escape(cliente.nombre)} · Umbral</title>
+    <style>
+    body{{margin:0;background:#0b1220;color:#eff6ff;font-family:Arial,sans-serif}}
+    main{{max-width:640px;margin:0 auto;padding:54px 22px}} .brand{{color:#67e8f9;font-size:.82rem;font-weight:700;letter-spacing:.13em}}
+    h1{{font-size:2rem;margin:12px 0}} p{{color:#cbd5e1;line-height:1.5}} form{{margin-top:28px;padding:24px;background:#111c30;border:1px solid #26364f;border-radius:14px}}
+    label{{display:block;font-weight:700;margin:18px 0 7px}} input,textarea{{box-sizing:border-box;width:100%;padding:12px;border:1px solid #475569;border-radius:8px;background:#0b1220;color:#eff6ff;font:inherit}}
+    textarea{{min-height:140px;resize:vertical}} .check{{display:flex;gap:9px;align-items:flex-start;font-size:.9rem;font-weight:400;color:#cbd5e1}} .check input{{width:auto;margin-top:3px}}
+    button{{margin-top:20px;padding:13px 18px;border:0;border-radius:8px;background:#22d3ee;color:#06202a;font-weight:700;font-size:1rem;cursor:pointer}}
+    .notice{{padding:12px 14px;border-radius:8px}} .success{{background:#123b31;color:#bbf7d0}} .error{{background:#4a1d26;color:#fecdd3}}
+    small{{color:#94a3b8;display:block;margin-top:18px}}
+    </style></head><body><main><div class='brand'>UMBRAL · PILOTO MANUAL</div>
+    <h1>Derivar una consulta</h1><p>Registrá una consulta de <strong>{escape(cliente.nombre)}</strong>. Umbral la ordena y la deja lista para revisión.</p>{notice}
+    <form method='post'><input type='hidden' name='csrfmiddlewaretoken' value='{get_token(request)}'>
+    <label for='nombre'>Nombre del prospecto</label><input id='nombre' name='nombre' maxlength='160' required>
+    <label for='telefono'>WhatsApp con código de país</label><input id='telefono' name='telefono' placeholder='+54 9 11 1234 5678' maxlength='32' required>
+    <label for='consulta'>Consulta, medidas, zona o notas disponibles</label><textarea id='consulta' name='consulta' maxlength='4000' required></textarea>
+    <label class='check'><input type='checkbox' name='consentimiento' value='si' required> Confirmo que esta persona autorizó ser contactada por WhatsApp sobre su consulta.</label>
+    <button type='submit'>Registrar y calificar consulta</button><small>En el piloto, Umbral no enviará mensajes automáticamente desde este formulario.</small></form></main></body></html>"""
+    return HttpResponse(html, content_type="text/html; charset=utf-8")
+
+
+def _normalize_manual_phone(value: str) -> str:
+    normalized = _normalize_phone(value)
+    if normalized:
+        return normalized
+    try:
+        parsed = phonenumbers.parse((value or "").strip(), "AR")
+        if phonenumbers.is_possible_number(parsed):
+            return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+    except phonenumbers.NumberParseException:
+        pass
+    return ""
+
+
+def manual_intake(request: HttpRequest, token: str) -> HttpResponse:
+    """Registra una consulta manual y ejecuta la misma calificación que WhatsApp."""
+    try:
+        cliente = Cliente.objects.filter(manual_intake_token=token, activo=True).first()
+        if cliente is None:
+            raise Cliente.DoesNotExist
+    except Cliente.DoesNotExist:
+        return HttpResponse("No encontrado", status=404)
+
+    if request.method == "GET":
+        return _manual_intake_page(request, cliente)
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    nombre = request.POST.get("nombre", "").strip()
+    telefono = _normalize_manual_phone(request.POST.get("telefono", ""))
+    consulta = request.POST.get("consulta", "").strip()
+    if not nombre or not telefono or not consulta:
+        return _manual_intake_page(request, cliente, "Completá nombre, teléfono y consulta.")
+    if request.POST.get("consentimiento") != "si":
+        return _manual_intake_page(request, cliente, "Confirmá el consentimiento para contacto por WhatsApp.")
+
+    lead = Lead.objects.create(
+        cliente=cliente,
+        source=Lead.Source.MANUAL,
+        nombre=nombre[:160],
+        telefono_e164=telefono,
+        consentimiento_whatsapp=True,
+        payload_origen={"canal": "piloto_manual"},
+    )
+    Interaccion.objects.create(
+        lead=lead,
+        direccion=Interaccion.Direccion.ENTRANTE,
+        tipo=Interaccion.Tipo.TEXTO,
+        texto=consulta[:4000],
+        estado_envio=Interaccion.EstadoEnvio.RECIBIDO,
+    )
+    try:
+        _apply_calification(lead, _ask_califier(lead))
+    except Exception:
+        logger.exception("No se pudo calificar una consulta manual lead=%s", lead.pk)
+        lead.estado = Lead.Estado.REQUIERE_HUMANO
+        lead.proxima_accion = "revisar_manual"
+        lead.motivos_calificacion = ["No se pudo completar la calificación automática."]
+        lead.save(update_fields=["estado", "proxima_accion", "motivos_calificacion", "updated_at"])
+    return _manual_intake_page(request, cliente, success=True)
 
 LEAD_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -382,9 +473,11 @@ def _next_message_for_lead(lead: Lead, ai_message: str = "") -> str:
 
 def _apply_calification(lead: Lead, result: dict[str, Any]) -> None:
     """Actualiza la ficha con IA, pero aplica reglas de negocio determinísticas."""
+    unknown_values = {"", "desconocido", "desconocida", "desconocidos", "desconocidas", "no informado", "no informada", "no informados", "no informadas", "no disponible", "n/a", "na", "none", "null"}
     for field in ("zona", "tipo_obra", "descripcion_obra", "medidas_aproximadas", "rango_presupuesto", "plazo"):
         value = result.get(field)
-        if value and value != "desconocido":
+        normalized_value = _normalise_for_comparison(str(value or ""))
+        if value and normalized_value not in unknown_values:
             setattr(lead, field, value)
 
     if result.get("fotos_estado") == "recibidas" and not lead.fotos:

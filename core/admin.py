@@ -4,7 +4,9 @@ from datetime import timedelta
 
 from django.contrib import admin, messages
 from django.http import HttpResponse
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 
 from .models import Cliente, Interaccion, Lead, WebhookEvent
 from .views import _send_whatsapp_template
@@ -79,7 +81,12 @@ Revisar los casos pendientes de atención humana y confirmar las visitas agendad
 
 @admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
+    @admin.display(description="Enlace de derivación manual")
+    def manual_intake_url(self, obj: Cliente):
+        url = reverse("manual-intake", args=[obj.manual_intake_token])
+        return format_html('<a href="{}" target="_blank" rel="noopener">Abrir formulario privado</a>', url)
     list_display = ("nombre", "contacto_nombre", "activo", "meta_page_id", "whatsapp_phone_number_id")
+    readonly_fields = ("manual_intake_token", "manual_intake_url")
     list_filter = ("activo",)
     search_fields = ("nombre", "contacto_nombre", "contacto_whatsapp")
     actions = ("generar_resumen_semanal",)
