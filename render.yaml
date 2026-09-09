@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: umbral-staging
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: python manage.py migrate --noinput && gunicorn umbral.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 30
+    healthCheckPath: /webhooks/healthz/
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: PYTHON_VERSION
+        value: "3.12.8"
