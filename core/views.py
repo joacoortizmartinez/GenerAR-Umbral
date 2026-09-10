@@ -25,6 +25,7 @@ from django.utils.html import escape
 from django.views.decorators.csrf import csrf_exempt
 from openai import OpenAI
 
+from .dashboard import client_dashboard
 from .models import Cliente, Interaccion, Lead, SolicitudPiloto, WebhookEvent
 
 logger = logging.getLogger(__name__)

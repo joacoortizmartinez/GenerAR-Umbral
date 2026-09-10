@@ -92,8 +92,13 @@ class ClienteAdmin(admin.ModelAdmin):
     def manual_intake_url(self, obj: Cliente):
         url = reverse("manual-intake", args=[obj.manual_intake_token])
         return format_html('<a href="{}" target="_blank" rel="noopener">Abrir formulario privado</a>', url)
+    @admin.display(description="Dashboard del cliente")
+    def client_dashboard_url(self, obj: Cliente):
+        url = reverse("client-dashboard", args=[obj.manual_intake_token])
+        return format_html('<a href="{}" target="_blank" rel="noopener">Abrir dashboard privado</a>', url)
+
     list_display = ("nombre", "contacto_nombre", "activo", "meta_page_id", "whatsapp_phone_number_id")
-    readonly_fields = ("manual_intake_token", "manual_intake_url")
+    readonly_fields = ("manual_intake_token", "manual_intake_url", "client_dashboard_url")
     list_filter = ("activo",)
     search_fields = ("nombre", "contacto_nombre", "contacto_whatsapp")
     actions = ("generar_resumen_semanal",)
