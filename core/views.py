@@ -25,7 +25,7 @@ from django.utils.html import escape
 from django.views.decorators.csrf import csrf_exempt
 from openai import OpenAI
 
-from .models import Cliente, Interaccion, Lead, WebhookEvent
+from .models import Cliente, Interaccion, Lead, SolicitudPiloto, WebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -33,23 +33,71 @@ HTTP_TIMEOUT = (3.05, 12)
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 MAX_HTTP_ATTEMPTS = 3
 
-def landing_page(request: HttpRequest) -> HttpResponse:
-    """Página pública mínima de Umbral para el piloto comercial."""
+def _landing_html(request: HttpRequest, error: str = "", success: bool = False) -> HttpResponse:
+    notice = (
+        "<div class='notice success'>Solicitud recibida. Te vamos a contactar para evaluar el piloto.</div>"
+        if success else (f"<div class='notice error'>{escape(error)}</div>" if error else "")
+    )
     html = """<!doctype html><html lang='es'><head><meta charset='utf-8'>
     <meta name='viewport' content='width=device-width,initial-scale=1'>
+    <meta name='description' content='Umbral transforma consultas de carpinterías en visitas técnicas mejor calificadas.'>
     <title>Umbral | Consultas que se convierten en visitas</title>
     <style>
-    body{margin:0;background:#0b1220;color:#eff6ff;font-family:Arial,sans-serif}
-    main{max-width:760px;margin:0 auto;padding:120px 28px}
-    .brand{color:#67e8f9;font-weight:700;letter-spacing:.13em;font-size:.85rem}
-    h1{font-size:clamp(2.6rem,7vw,5rem);line-height:1.02;margin:18px 0}
-    p{max-width:650px;color:#cbd5e1;font-size:1.2rem;line-height:1.6}
-    .tag{display:inline-block;margin-top:18px;padding:11px 15px;border:1px solid #22d3ee;border-radius:999px;color:#a5f3fc}
-    </style></head><body><main><div class='brand'>UMBRAL</div>
-    <h1>Más consultas.<br>Mejores visitas técnicas.</h1>
-    <p>Umbral ayuda a carpinterías de aluminio y PVC, cerramientos y soluciones en acrílico a ordenar, calificar y convertir sus consultas en oportunidades reales.</p>
-    <div class='tag'>Piloto privado para carpinterías</div></main></body></html>"""
+    :root{--bg:#08111f;--panel:#101d31;--line:#273a54;--text:#ecf5ff;--muted:#a8bdd2;--cyan:#58d9ef;--green:#7ee7b8}
+    *{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif}
+    .wrap{max-width:1080px;margin:0 auto;padding:0 24px}.nav{display:flex;justify-content:space-between;align-items:center;padding:24px 0}.brand{font-size:.9rem;font-weight:800;letter-spacing:.16em;color:var(--cyan)}
+    .nav a,.button{display:inline-block;text-decoration:none;font-weight:700;border-radius:9px;padding:12px 17px}.nav a{color:#06202a;background:var(--cyan)}
+    .hero{padding:82px 0 68px;max-width:850px}.eyebrow{color:var(--cyan);font-weight:700;letter-spacing:.08em;font-size:.85rem}.hero h1{font-size:clamp(2.8rem,7vw,5.6rem);line-height:.99;letter-spacing:-.05em;margin:18px 0 24px}.hero p{max-width:720px;font-size:1.28rem;line-height:1.6;color:var(--muted)}
+    .actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px}.button.primary{background:var(--cyan);color:#06202a}.button.secondary{border:1px solid var(--line);color:var(--text)}.micro{margin-top:16px;color:var(--muted);font-size:.92rem}
+    .proof{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:0 0 78px}.proof div,.card,.form-card{background:var(--panel);border:1px solid var(--line);border-radius:14px}.proof div{padding:20px}.proof b{display:block;font-size:1.06rem;margin-bottom:7px}.proof span{color:var(--muted);line-height:1.4}
+    section{padding:64px 0;border-top:1px solid #1d2c42}.section-label{color:var(--cyan);font-weight:700;font-size:.84rem;letter-spacing:.08em}.section-title{font-size:clamp(2rem,4vw,3rem);letter-spacing:-.035em;max-width:720px;margin:12px 0 18px}.section-text{color:var(--muted);font-size:1.08rem;line-height:1.6;max-width:720px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:28px}.card{padding:24px}.number{color:var(--cyan);font-weight:800}.card h3{font-size:1.18rem;margin:12px 0 9px}.card p{color:var(--muted);line-height:1.5;margin:0}
+    .split{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start}.list{padding:0;list-style:none}.list li{padding:13px 0;border-bottom:1px solid var(--line);color:var(--muted)}.list li:before{content:'✓';color:var(--green);font-weight:800;margin-right:10px}
+    .form-card{padding:28px}.form-card h2{margin:0 0 8px;font-size:2rem}.form-card p{color:var(--muted);line-height:1.5}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}label{display:block;font-size:.9rem;font-weight:700;margin:16px 0 7px}input,select,textarea{width:100%;padding:12px;border:1px solid #415773;border-radius:8px;background:#091523;color:var(--text);font:inherit}textarea{min-height:105px;resize:vertical}.wide{grid-column:1/-1}.check{display:flex;gap:9px;align-items:flex-start;font-weight:400;color:var(--muted);font-size:.9rem;line-height:1.4}.check input{width:auto;margin-top:3px}.hidden{position:absolute;left:-10000px;opacity:0}.notice{margin:16px 0;padding:13px;border-radius:9px}.success{background:#113d31;color:#bff8d7}.error{background:#4a1d26;color:#ffd2d9}
+    footer{padding:34px 0 50px;color:#92a9c0;font-size:.9rem}footer p{max-width:760px;line-height:1.5}@media(max-width:720px){.hero{padding:58px 0}.proof,.grid,.split{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.nav a{padding:10px 12px}.hero h1{font-size:3rem}}
+    </style></head><body><div class='wrap'><nav class='nav'><div class='brand'>UMBRAL</div><a href='#piloto'>Solicitar piloto</a></nav>
+    <main><section class='hero'><div class='eyebrow'>SISTEMA DE CALIFICACIÓN PARA CARPINTERÍAS</div><h1>Convertí más consultas en visitas técnicas que valen la pena.</h1><p>Umbral ordena y califica las consultas de carpinterías de aluminio y PVC, cerramientos y soluciones en acrílico para que tu equipo deje de perseguir mensajes sin futuro.</p><div class='actions'><a class='button primary' href='#piloto'>Solicitar piloto de 14 días</a><a class='button secondary' href='#como-funciona'>Ver cómo funciona</a></div><div class='micro'>Implementación acompañada. Sin contraseñas. Sin cambiar tu número al comenzar.</div></section>
+    <div class='proof'><div><b>Menos tiempo perdido</b><span>Priorizá las consultas que tienen zona, proyecto y plazo reales.</span></div><div><b>Más orden comercial</b><span>Un historial claro de cada consulta y su próxima acción.</span></div><div><b>Piloto primero</b><span>Probamos el valor antes de pedir integraciones complejas.</span></div></div>
+    <section id='como-funciona'><div class='section-label'>CÓMO FUNCIONA</div><h2 class='section-title'>No vendemos “IA”. Te ayudamos a no perder buenas oportunidades.</h2><div class='grid'><article class='card'><div class='number'>01</div><h3>Entra una consulta</h3><p>Desde el piloto manual o, más adelante, desde tus formularios y WhatsApp.</p></article><article class='card'><div class='number'>02</div><h3>Umbral la ordena</h3><p>Detecta zona, tipo de obra, medidas/fotos, plazo y datos faltantes.</p></article><article class='card'><div class='number'>03</div><h3>Tu equipo decide mejor</h3><p>Recibe un resumen claro y sabe cuál es la próxima pregunta o acción.</p></article></div></section>
+    <section><div class='split'><div><div class='section-label'>PARA QUIÉN ES</div><h2 class='section-title'>Para talleres que ya reciben consultas, pero no tienen tiempo para perseguirlas todas.</h2><p class='section-text'>El piloto está pensado para negocios que venden aberturas, cerramientos, frentes, mamparas, techos o trabajos a medida en aluminio, PVC y acrílico.</p></div><ul class='list'><li>Conservás el control de tus canales comerciales.</li><li>No pedimos tu contraseña de Facebook o WhatsApp.</li><li>Arrancamos con un proceso simple y medimos el resultado.</li><li>La integración completa llega sólo si el piloto demuestra valor.</li></ul></div></section>
+    <section id='piloto'><div class='form-card'><div class='section-label'>PILOTO PRIVADO</div><h2>¿Tu carpintería recibe consultas que nadie termina de seguir?</h2><p>Contanos brevemente cómo trabajás. Evaluamos si Umbral encaja y coordinamos una demostración corta.</p>__NOTICE__
+    <form method='post' novalidate><input type='hidden' name='csrfmiddlewaretoken' value='__CSRF__'><div class='hidden' aria-hidden='true'><label>Sitio web<input name='sitio_web' tabindex='-1' autocomplete='off'></label></div><div class='form-grid'>
+    <div><label for='nombre'>Tu nombre</label><input id='nombre' name='nombre' maxlength='120' required></div><div><label for='negocio'>Nombre del negocio</label><input id='negocio' name='negocio' maxlength='160' required></div>
+    <div><label for='telefono'>WhatsApp</label><input id='telefono' name='telefono' placeholder='+54 9 11 1234 5678' maxlength='32' required></div><div><label for='ciudad'>Ciudad o zona</label><input id='ciudad' name='ciudad' maxlength='120' required></div>
+    <div><label for='rubro'>Principal rubro</label><select id='rubro' name='rubro'><option value='aluminio'>Aluminio</option><option value='pvc'>PVC</option><option value='cerramientos'>Cerramientos</option><option value='acrilicos'>Acrílicos</option><option value='mixto'>Mixto / otro</option></select></div>
+    <div><label for='volumen'>Consultas por mes</label><select id='volumen' name='volumen'><option value='1_20'>1 a 20</option><option value='21_50'>21 a 50</option><option value='51_100'>51 a 100</option><option value='100_plus'>Más de 100</option></select></div>
+    <div class='wide'><label for='email'>Email (opcional)</label><input id='email' name='email' type='email' maxlength='254'></div><div class='wide'><label for='mensaje'>¿Qué te gustaría mejorar? (opcional)</label><textarea id='mensaje' name='mensaje' maxlength='2000'></textarea></div>
+    <label class='check wide'><input type='checkbox' name='consentimiento' value='si' required> Autorizo a Umbral a contactarme por esta solicitud. Mis datos se usarán únicamente para responder esta consulta.</label></div><button class='button primary' type='submit'>Solicitar evaluación de piloto</button></form></div></section></main>
+    <footer id='privacidad'><div class='brand'>UMBRAL</div><p>Usamos los datos enviados en este formulario únicamente para responder la solicitud comercial y coordinar una posible demostración. No compartas contraseñas, documentos ni información bancaria.</p></footer></div></body></html>"""
+    html = html.replace("__CSRF__", escape(get_token(request))).replace("__NOTICE__", notice)
     return HttpResponse(html, content_type="text/html; charset=utf-8")
+
+
+def landing_page(request: HttpRequest) -> HttpResponse:
+    """Landing comercial y captación de solicitudes para el piloto de Umbral."""
+    if request.method == "GET":
+        return _landing_html(request)
+    if request.method != "POST":
+        return HttpResponse(status=405)
+    if request.POST.get("sitio_web"):
+        return _landing_html(request, success=True)
+
+    nombre = request.POST.get("nombre", "").strip()
+    negocio = request.POST.get("negocio", "").strip()
+    telefono = _normalize_manual_phone(request.POST.get("telefono", ""))
+    ciudad = request.POST.get("ciudad", "").strip()
+    if not nombre or not negocio or not telefono or not ciudad:
+        return _landing_html(request, "Completá nombre, negocio, WhatsApp y ciudad.")
+    if request.POST.get("consentimiento") != "si":
+        return _landing_html(request, "Necesitamos tu autorización para responder esta solicitud.")
+
+    SolicitudPiloto.objects.create(
+        nombre=nombre[:120], negocio=negocio[:160], telefono_e164=telefono,
+        email=request.POST.get("email", "").strip()[:254], ciudad=ciudad[:120],
+        rubro=request.POST.get("rubro", "")[:64], volumen_consultas=request.POST.get("volumen", "")[:32],
+        mensaje=request.POST.get("mensaje", "").strip()[:2000], consentimiento_contacto=True,
+    )
+    return _landing_html(request, success=True)
 
 
 def _manual_intake_page(request: HttpRequest, cliente: Cliente, error: str = "", success: bool = False) -> HttpResponse:

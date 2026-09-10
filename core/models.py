@@ -31,6 +31,34 @@ class Cliente(models.Model):
     def __str__(self) -> str:
         return self.nombre
 
+class SolicitudPiloto(models.Model):
+    class Estado(models.TextChoices):
+        NUEVA = "nueva", "Nueva"
+        CONTACTADA = "contactada", "Contactada"
+        CALIFICADA = "calificada", "Calificada"
+        DESCARTADA = "descartada", "Descartada"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    nombre = models.CharField(max_length=120)
+    negocio = models.CharField(max_length=160)
+    telefono_e164 = models.CharField(max_length=32)
+    email = models.EmailField(blank=True)
+    ciudad = models.CharField(max_length=120, blank=True)
+    rubro = models.CharField(max_length=64, blank=True)
+    volumen_consultas = models.CharField(max_length=32, blank=True)
+    mensaje = models.TextField(blank=True)
+    consentimiento_contacto = models.BooleanField(default=False)
+    estado = models.CharField(max_length=24, choices=Estado.choices, default=Estado.NUEVA)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "solicitud de piloto"
+        verbose_name_plural = "solicitudes de piloto"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.negocio} · {self.nombre}"
 
 class Lead(models.Model):
     class Source(models.TextChoices):

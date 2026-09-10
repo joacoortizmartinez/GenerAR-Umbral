@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from .models import Cliente, Interaccion, Lead, WebhookEvent
+from .models import Cliente, Interaccion, Lead, SolicitudPiloto, WebhookEvent
 from .views import _send_whatsapp_template
 
 
@@ -28,6 +28,13 @@ class ColaOperativaFilter(admin.SimpleListFilter):
             return queryset.filter(interacciones__estado_envio=Interaccion.EstadoEnvio.FALLIDO).distinct()
         return queryset
 
+@admin.register(SolicitudPiloto)
+class SolicitudPilotoAdmin(admin.ModelAdmin):
+    list_display = ("negocio", "nombre", "telefono_e164", "ciudad", "rubro", "volumen_consultas", "estado", "created_at")
+    list_filter = ("estado", "rubro", "volumen_consultas")
+    search_fields = ("negocio", "nombre", "telefono_e164", "ciudad", "email")
+    readonly_fields = ("id", "created_at", "updated_at")
+    list_editable = ("estado",)
 
 @admin.register(Lead)
 class LeadAdmin(admin.ModelAdmin):
