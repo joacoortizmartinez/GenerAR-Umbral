@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from io import StringIO
 
 from django.contrib import admin, messages
+from django.core.management import call_command
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
@@ -101,7 +103,17 @@ class ClienteAdmin(admin.ModelAdmin):
     readonly_fields = ("manual_intake_token", "manual_intake_url", "client_dashboard_url")
     list_filter = ("activo",)
     search_fields = ("nombre", "contacto_nombre", "contacto_whatsapp")
-    actions = ("generar_resumen_semanal",)
+    actions = ("generar_resumen_semanal", "cargar_demo_dashboard")
+
+    @admin.action(description="Cargar 12 consultas ficticias en Carpintería Demo")
+    def cargar_demo_dashboard(self, request, queryset):
+        demo_clients = queryset.filter(nombre="Carpintería Demo")
+        if not demo_clients.exists():
+            self.message_user(request, "Por seguridad, esta acción sólo funciona seleccionando Carpintería Demo.", messages.ERROR)
+            return
+        for cliente in demo_clients:
+            call_command("seed_demo_dashboard", "--cliente", cliente.nombre, stdout=StringIO())
+        self.message_user(request, "Demo cargada: ya podés abrir el dashboard privado.", messages.SUCCESS)
 
     @admin.action(description="Descargar reporte semanal Markdown")
     def generar_resumen_semanal(self, request, queryset):
